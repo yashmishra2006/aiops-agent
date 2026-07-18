@@ -25,7 +25,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 
-const VERSION = '0.2.1';
+const VERSION = '0.3.0';
 
 // ---------------------------------------------------------------------------
 // Minimal YAML subset parser (nested maps, lists of scalars, scalar values).
@@ -1506,7 +1506,7 @@ class FileCollector {
     const lines = text.split('\n');
     this.partial.set(file, lines.pop()); // keep incomplete tail for next read
 
-    const service = path.basename(file).replace(/\.log$/, '');
+    const service = fileServiceName(file);
     for (const line of lines) {
       if (!line.trim()) continue;
       this.emit({
@@ -1528,6 +1528,24 @@ class FileCollector {
 }
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Service name for a tailed file: prefer the containing directory when it is
+// service-specific (/var/log/nginx/error.log -> nginx), else the file name
+// (/var/log/auth.log -> auth). "log(s)" directories look one level up
+// (/opt/myapp/logs/api.log -> myapp) unless that is generic too.
+function fileServiceName(file) {
+  const base = path.basename(file).replace(/\.log$/, '');
+  const dir = path.dirname(file);
+  if (dir === '/var/log') return base;
+  const dirName = path.basename(dir);
+  if (dirName === 'log' || dirName === 'logs') {
+    const parent = path.basename(path.dirname(dir));
+    if (!parent || parent.startsWith('.') ||
+        ['var', 'opt', 'srv', 'home', 'data'].includes(parent)) return base;
+    return parent;
+  }
+  return dirName || base;
+}
 
 // ---------------------------------------------------------------------------
 // Metrics collector: basic host vitals as periodic events
@@ -1798,7 +1816,7 @@ if (require.main === module) {
   // for tests
   module.exports = {
     parseYaml, loadConfig, inferSinkType, detectLevel, deepMerge,
-    scramClient, bsonEncode, bsonDecode, parseMongoUrl,
+    scramClient, bsonEncode, bsonDecode, parseMongoUrl, fileServiceName,
     BufferQueue, Shipper, SinkError,
     AiopsSink, PostgresSink, MySQLSink, MongoSink, createSink,
   };

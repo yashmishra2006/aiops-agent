@@ -9,6 +9,8 @@
 #   ... | sudo bash -s -- --api-key sk_xxx --endpoint https://logs.yourdomain.com
 #   ... | sudo bash -s -- --connection-string 'postgresql://user:pass@host:5432/logs'
 #   ... | sudo bash -s -- --connection-string 'mongodb+srv://user:pass@cluster.mongodb.net/logs'
+#   add --collectors recommended | --collectors nginx,postgresql,metrics,... to
+#   pick log sources without prompts (default: recommended = everything)
 #
 # Also works from a local checkout/tarball:  sudo ./install.sh
 #
@@ -29,12 +31,14 @@ API_KEY="${AIOPS_API_KEY:-}"
 ENDPOINT="${AIOPS_ENDPOINT:-}"
 CONNECTION_STRING="${AIOPS_CONNECTION_STRING:-}"
 ENVIRONMENT="${AIOPS_ENVIRONMENT:-production}"
+COLLECTORS="${AIOPS_COLLECTORS:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --api-key)           API_KEY="$2"; shift 2 ;;
     --endpoint)          ENDPOINT="$2"; shift 2 ;;
     --connection-string) CONNECTION_STRING="$2"; shift 2 ;;
+    --collectors)        COLLECTORS="$2"; shift 2 ;;
     --environment)       ENVIRONMENT="$2"; shift 2 ;;
     --version)           VERSION="$2"; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
@@ -49,6 +53,114 @@ check_connection_string() {
     postgres://*|postgresql://*|mysql://*|mongodb://*|mongodb+srv://*) ;;
     *) fail "unsupported connection string (expected postgres://, postgresql://, mysql://, mongodb:// or mongodb+srv://)" ;;
   esac
+}
+
+# ------------------------------------------------------- log source catalog
+SOURCES=(journal docker system metrics nginx apache postgresql mysql mongodb redis auth audit kernel mail cron apps)
+RECOMMENDED="journal docker system metrics apps"
+
+desc_for() {
+  case "$1" in
+    journal)    echo "full systemd journal — every service that logs to it" ;;
+    docker)     echo "Docker containers — log streams + start/stop/OOM events" ;;
+    system)     echo "system log files — /var/log/*.log, syslog, messages" ;;
+    metrics)    echo "host metrics — CPU load, memory, disk usage" ;;
+    nginx)      echo "nginx — access + error logs" ;;
+    apache)     echo "Apache httpd — access + error logs" ;;
+    postgresql) echo "PostgreSQL server logs" ;;
+    mysql)      echo "MySQL / MariaDB server logs" ;;
+    mongodb)    echo "MongoDB server logs" ;;
+    redis)      echo "Redis server logs" ;;
+    auth)       echo "logins, sudo, fail2ban — auth.log / secure" ;;
+    audit)      echo "auditd security audit trail" ;;
+    kernel)     echo "kernel messages — kern.log" ;;
+    mail)       echo "mail server — mail.log / maillog" ;;
+    cron)       echo "cron job logs" ;;
+    apps)       echo "app logs — /opt/*/logs, PM2, supervisor" ;;
+  esac
+}
+
+detect_source() {
+  case "$1" in
+    journal)    command -v journalctl >/dev/null ;;
+    docker)     [[ -S /var/run/docker.sock || -S /run/docker.sock ]] ;;
+    system)     return 0 ;;
+    metrics)    return 0 ;;
+    nginx)      [[ -d /var/log/nginx ]] ;;
+    apache)     [[ -d /var/log/apache2 || -d /var/log/httpd ]] ;;
+    postgresql) [[ -d /var/log/postgresql || -d /var/lib/pgsql ]] ;;
+    mysql)      [[ -d /var/log/mysql || -d /var/log/mariadb || -f /var/log/mysqld.log ]] ;;
+    mongodb)    [[ -d /var/log/mongodb ]] ;;
+    redis)      [[ -d /var/log/redis ]] ;;
+    auth)       [[ -f /var/log/auth.log || -f /var/log/secure ]] ;;
+    audit)      [[ -f /var/log/audit/audit.log ]] ;;
+    kernel)     [[ -f /var/log/kern.log ]] ;;
+    mail)       [[ -f /var/log/mail.log || -f /var/log/maillog ]] ;;
+    cron)       [[ -f /var/log/cron ]] ;;
+    apps)       return 0 ;;
+    *)          return 1 ;;
+  esac
+}
+
+paths_for() {
+  case "$1" in
+    system)     echo '/var/log/*.log /var/log/syslog /var/log/messages' ;;
+    nginx)      echo '/var/log/nginx/*.log' ;;
+    apache)     echo '/var/log/apache2/*.log /var/log/httpd/*log' ;;
+    postgresql) echo '/var/log/postgresql/*.log /var/lib/pgsql/*/log/*.log /var/lib/pgsql/*/data/log/*.log' ;;
+    mysql)      echo '/var/log/mysql/*.log /var/log/mariadb/*.log /var/log/mysqld.log' ;;
+    mongodb)    echo '/var/log/mongodb/*.log' ;;
+    redis)      echo '/var/log/redis/*.log' ;;
+    auth)       echo '/var/log/auth.log /var/log/secure /var/log/fail2ban.log' ;;
+    audit)      echo '/var/log/audit/audit.log' ;;
+    kernel)     echo '/var/log/kern.log' ;;
+    mail)       echo '/var/log/mail.log /var/log/maillog' ;;
+    cron)       echo '/var/log/cron' ;;
+    apps)       echo '/opt/*/logs/*.log /var/log/supervisor/*.log /root/.pm2/logs/*.log /home/*/.pm2/logs/*.log' ;;
+  esac
+}
+
+# journald units that also cover the source (catches services logging to the
+# journal instead of, or in addition to, their files)
+units_for() {
+  case "$1" in
+    nginx)      echo 'nginx.service' ;;
+    apache)     echo 'apache2.service httpd.service' ;;
+    postgresql) echo 'postgresql.service' ;;
+    mysql)      echo 'mysql.service mysqld.service mariadb.service' ;;
+    mongodb)    echo 'mongod.service' ;;
+    redis)      echo 'redis.service redis-server.service' ;;
+    cron)       echo 'cron.service crond.service' ;;
+  esac
+}
+
+in_sources() {
+  local s
+  for s in "${SOURCES[@]}"; do [[ "$s" == "$1" ]] && return 0; done
+  return 1
+}
+
+# Turns the chosen source list into collector settings for the config file.
+build_collection() {
+  SEL_DOCKER=false SEL_JOURNAL=false SEL_METRICS=false SEL_FILES=false
+  JOURNAL_UNITS="" FILE_PATHS=""
+  local journal_all=false s u
+  for s in $1; do
+    case "$s" in
+      journal) SEL_JOURNAL=true; journal_all=true ;;
+      docker)  SEL_DOCKER=true ;;
+      metrics) SEL_METRICS=true ;;
+      *)
+        FILE_PATHS+=" $(paths_for "$s")"
+        u="$(units_for "$s")"
+        if [[ -n "$u" ]]; then SEL_JOURNAL=true; JOURNAL_UNITS+=" $u"; fi
+        ;;
+    esac
+  done
+  [[ "$journal_all" == true ]] && JOURNAL_UNITS=""   # empty units = all units
+  FILE_PATHS="${FILE_PATHS# }"
+  JOURNAL_UNITS="${JOURNAL_UNITS# }"
+  [[ -n "$FILE_PATHS" ]] && SEL_FILES=true
 }
 
 # --------------------------------------------------- choose a storage backend
@@ -89,8 +201,70 @@ if [[ -z "$API_KEY" && -z "$CONNECTION_STRING" && -r /dev/tty && -w /dev/tty ]];
       read -r CONNECTION_STRING < /dev/tty
       ;;
   esac
+
+  # ---- which log sources -------------------------------------------------
+  if [[ -z "$COLLECTORS" ]]; then
+    echo                                                              > /dev/tty
+    echo "Which logs should it collect?"                              > /dev/tty
+    echo                                                              > /dev/tty
+    echo "  1) Recommended — system journal, Docker, log files, host metrics (everything)" > /dev/tty
+    echo "  2) Custom      — pick individual sources"                 > /dev/tty
+    echo                                                              > /dev/tty
+    SCOPE=""
+    while [[ ! "$SCOPE" =~ ^[12]$ ]]; do
+      printf "Choice [1-2]: " > /dev/tty
+      read -r SCOPE < /dev/tty || fail "no input"
+    done
+    if [[ "$SCOPE" == 2 ]]; then
+      echo                                                            > /dev/tty
+      echo "Log sources (✓ = found on this machine):"                 > /dev/tty
+      echo                                                            > /dev/tty
+      i=1
+      for s in "${SOURCES[@]}"; do
+        if detect_source "$s"; then mark="✓"; else mark=" "; fi
+        printf "  %2d) %s %-11s %s\n" "$i" "$mark" "$s" "$(desc_for "$s")" > /dev/tty
+        i=$((i + 1))
+      done
+      echo                                                            > /dev/tty
+      COLLECTORS=""
+      while [[ -z "$COLLECTORS" ]]; do
+        printf "Sources to collect (numbers or names, comma-separated, e.g. 1,5,7): " > /dev/tty
+        read -r PICKS < /dev/tty || fail "no input"
+        COLLECTORS=""
+        ok=true
+        IFS=', ' read -ra PARTS <<< "$PICKS"
+        for p in "${PARTS[@]}"; do
+          [[ -z "$p" ]] && continue
+          if [[ "$p" =~ ^[0-9]+$ ]] && (( p >= 1 && p <= ${#SOURCES[@]} )); then
+            COLLECTORS+="${SOURCES[$((p - 1))]},"
+          elif in_sources "$p"; then
+            COLLECTORS+="$p,"
+          else
+            echo "  unknown source: $p" > /dev/tty
+            ok=false
+          fi
+        done
+        [[ "$ok" == true && -n "$COLLECTORS" ]] || COLLECTORS=""
+      done
+      COLLECTORS="${COLLECTORS%,}"
+    else
+      COLLECTORS=recommended
+    fi
+  fi
 fi
 [[ -z "$CONNECTION_STRING" ]] || check_connection_string "$CONNECTION_STRING"
+
+# resolve the source list (flags, prompt answer, or default) into settings
+if [[ -z "$COLLECTORS" || "$COLLECTORS" == recommended ]]; then
+  CHOSEN="$RECOMMENDED"
+else
+  CHOSEN="${COLLECTORS//,/ }"
+  for s in $CHOSEN; do
+    in_sources "$s" || fail "unknown collector '$s' (valid: ${SOURCES[*]}, or 'recommended')"
+  done
+fi
+build_collection "$CHOSEN"
+log "collecting: $CHOSEN"
 
 [[ $EUID -eq 0 ]] || fail "must run as root (use sudo)"
 command -v systemctl >/dev/null || fail "systemd is required"
@@ -105,7 +279,6 @@ if [[ -f "$SCRIPT_DIR/agent/aiops-agent.js" ]]; then
   log "installing agent from local files"
   cp "$SCRIPT_DIR/agent/aiops-agent.js" "$INSTALL_DIR/aiops-agent.js"
   cp "$SCRIPT_DIR/packaging/aiops-agent.service" /etc/systemd/system/aiops-agent.service
-  CONFIG_TEMPLATE="$SCRIPT_DIR/agent/config.example.yaml"
 else
   if [[ -z "$DOWNLOAD_BASE" ]]; then
     if [[ "$VERSION" == "latest" ]]; then
@@ -129,7 +302,6 @@ else
   tar -xzf "$TMP/agent.tar.gz" -C "$TMP"
   cp "$TMP"/aiops-agent-*/agent/aiops-agent.js "$INSTALL_DIR/aiops-agent.js"
   cp "$TMP"/aiops-agent-*/packaging/aiops-agent.service /etc/systemd/system/aiops-agent.service
-  CONFIG_TEMPLATE="$TMP"/aiops-agent-*/agent/config.example.yaml
 fi
 
 # ------------------------------------------------------------- node runtime
@@ -162,45 +334,49 @@ mkdir -p "$INSTALL_DIR/bin"
 ln -sf "$NODE_BIN" "$INSTALL_DIR/bin/node"
 
 # ------------------------------------------------------------------- config
-if [[ -f "$CONFIG_DIR/config.yaml" ]]; then
-  log "keeping existing config at $CONFIG_DIR/config.yaml"
-elif [[ -n "$CONNECTION_STRING" ]]; then
-  log "writing $CONFIG_DIR/config.yaml (direct database sink)"
-  {
-    echo "# aiops-agent configuration (generated by install.sh)"
+write_config() {
+  echo "# aiops-agent configuration (generated by install.sh)"
+  echo
+  printf 'environment: %s\n' "$ENVIRONMENT"
+  echo
+  if [[ -n "$CONNECTION_STRING" ]]; then
     echo "# Logs are written directly into your database; sink type is inferred"
     echo "# from the connection string scheme."
-    echo
-    printf 'environment: %s\n' "$ENVIRONMENT"
-    echo
     echo "sink:"
     printf '  connection_string: %s\n' "$CONNECTION_STRING"
     echo "  table: aiops_logs"
-    cat <<'YAML'
+  else
+    echo "# Central aiops ingest server"
+    printf 'endpoint: %s\n' "${ENDPOINT:-https://logs.yourdomain.com}"
+    printf 'api_key: %s\n' "${API_KEY:-sk_live_replace_me}"
+  fi
+  echo
+  echo "collectors:"
+  echo "  docker:"
+  printf '    enabled: %s\n' "$SEL_DOCKER"
+  echo "    socket: /var/run/docker.sock"
+  echo "  journald:"
+  printf '    enabled: %s\n' "$SEL_JOURNAL"
+  if [[ -n "$JOURNAL_UNITS" ]]; then
+    echo "    units:"
+    for u in $JOURNAL_UNITS; do printf '      - %s\n' "$u"; done
+  fi
+  echo "  files:"
+  printf '    enabled: %s\n' "$SEL_FILES"
+  if [[ -n "$FILE_PATHS" ]]; then
+    echo "    paths:"
+    for p in $FILE_PATHS; do printf '      - %s\n' "$p"; done
+  fi
+  echo "  metrics:"
+  printf '    enabled: %s\n' "$SEL_METRICS"
+  echo "    interval_seconds: 60"
+}
 
-collectors:
-  docker:
-    enabled: true
-    socket: /var/run/docker.sock
-  journald:
-    enabled: true
-  files:
-    enabled: true
-    paths:
-      - /var/log/*.log
-      - /var/log/syslog
-      - /opt/*/logs/*.log
-  metrics:
-    enabled: true
-    interval_seconds: 60
-YAML
-  } > "$CONFIG_DIR/config.yaml"
+if [[ -f "$CONFIG_DIR/config.yaml" ]]; then
+  log "keeping existing config at $CONFIG_DIR/config.yaml"
 else
   log "writing $CONFIG_DIR/config.yaml"
-  cp "$CONFIG_TEMPLATE" "$CONFIG_DIR/config.yaml"
-  [[ -n "$ENDPOINT" ]] && sed -i "s|^endpoint:.*|endpoint: $ENDPOINT|" "$CONFIG_DIR/config.yaml"
-  [[ -n "$API_KEY"  ]] && sed -i "s|^api_key:.*|api_key: $API_KEY|"   "$CONFIG_DIR/config.yaml"
-  sed -i "s|^environment:.*|environment: $ENVIRONMENT|" "$CONFIG_DIR/config.yaml"
+  write_config > "$CONFIG_DIR/config.yaml"
 fi
 chmod 600 "$CONFIG_DIR/config.yaml"
 chown root:root "$CONFIG_DIR/config.yaml"

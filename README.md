@@ -42,8 +42,39 @@ Where should this agent send logs?
 
 Option 1 asks for your endpoint + API key; options 2–4 ask for a connection
 string (e.g. `postgresql://user:pass@host:5432/logs` or
-`mongodb+srv://user:pass@cluster.mongodb.net/logs`). For unattended installs,
-pass the answers as flags and nothing is asked:
+`mongodb+srv://user:pass@cluster.mongodb.net/logs`).
+
+Then it asks **which logs to collect** — either *Recommended* (system journal,
+Docker, log files, host metrics: everything) or *Custom*, which shows every
+known source with a ✓ next to the ones detected on that machine:
+
+```
+Log sources (✓ = found on this machine):
+
+   1) ✓ journal     full systemd journal — every service that logs to it
+   2) ✓ docker      Docker containers — log streams + start/stop/OOM events
+   3) ✓ system      system log files — /var/log/*.log, syslog, messages
+   4) ✓ metrics     host metrics — CPU load, memory, disk usage
+   5) ✓ nginx       nginx — access + error logs
+   6)   apache      Apache httpd — access + error logs
+   7) ✓ postgresql  PostgreSQL server logs
+   8)   mysql       MySQL / MariaDB server logs
+   9)   mongodb     MongoDB server logs
+  10)   redis       Redis server logs
+  11) ✓ auth        logins, sudo, fail2ban — auth.log / secure
+  12)   audit       auditd security audit trail
+  13) ✓ kernel      kernel messages — kern.log
+  14)   mail        mail server — mail.log / maillog
+  15)   cron        cron job logs
+  16) ✓ apps        app logs — /opt/*/logs, PM2, supervisor
+
+Sources to collect (numbers or names, comma-separated, e.g. 1,5,7):
+```
+
+Picking a service (say `nginx`) wires up both its log files
+(`/var/log/nginx/*.log`) and its systemd unit in the journal, so nothing is
+missed regardless of where it logs. For unattended installs, pass the answers
+as flags and nothing is asked:
 
 ```bash
 # ship to an aiops server
@@ -53,6 +84,11 @@ curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/downloa
 # or write straight into your own database
 curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash -s -- \
   --connection-string 'postgresql://user:pass@db.example.com:5432/logs'
+
+# choose sources without prompts: --collectors recommended (default) or a list
+curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash -s -- \
+  --connection-string 'postgresql://user:pass@db.example.com:5432/logs' \
+  --collectors nginx,postgresql,auth,metrics
 ```
 
 Or from a local checkout / tarball: `sudo ./install.sh [flags]`.
