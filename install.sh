@@ -148,13 +148,13 @@ if [[ -z "$NODE_BIN" ]]; then
     *) fail "unsupported architecture: $ARCH" ;;
   esac
   NTMP="$(mktemp -d)"
-  curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$NODE_ARCH.tar.xz" \
-    -o "$NTMP/node.tar.xz"
+  NODE_TARBALL="node-v$NODE_VERSION-linux-$NODE_ARCH.tar.xz"
+  curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/$NODE_TARBALL" -o "$NTMP/$NODE_TARBALL"
   curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt" -o "$NTMP/SHASUMS256.txt"
-  (cd "$NTMP" && grep " node-v$NODE_VERSION-linux-$NODE_ARCH.tar.xz\$" SHASUMS256.txt | sha256sum -c -) \
+  (cd "$NTMP" && grep " $NODE_TARBALL\$" SHASUMS256.txt | sha256sum -c -) \
     || fail "node runtime checksum verification failed"
   mkdir -p "$INSTALL_DIR/runtime"
-  tar -xJf "$NTMP/node.tar.xz" -C "$INSTALL_DIR/runtime" --strip-components=1
+  tar -xJf "$NTMP/$NODE_TARBALL" -C "$INSTALL_DIR/runtime" --strip-components=1
   rm -rf "$NTMP"
   NODE_BIN="$INSTALL_DIR/runtime/bin/node"
 fi

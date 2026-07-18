@@ -25,7 +25,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 
 // ---------------------------------------------------------------------------
 // Minimal YAML subset parser (nested maps, lists of scalars, scalar values).
