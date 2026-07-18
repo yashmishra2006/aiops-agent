@@ -2,7 +2,7 @@
 #
 # aiops-agent installer
 #
-#   curl -fsSL https://raw.githubusercontent.com/yashmishra2006/aiops-agent/main/install.sh | sudo bash
+#   curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash
 #     (asks interactively where logs should be stored)
 #
 # Non-interactive:

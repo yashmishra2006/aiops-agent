@@ -28,15 +28,16 @@ git push origin HEAD "$TAG"
 gh release create "$TAG" \
   "dist/aiops-agent-$VERSION.tar.gz" \
   "dist/aiops-agent-$VERSION.tar.gz.sha256" \
+  "dist/install.sh" \
   --title "aiops-agent $TAG" \
   --notes "Install or upgrade:
 
 \`\`\`bash
-curl -fsSL https://raw.githubusercontent.com/yashmishra2006/aiops-agent/main/install.sh | sudo bash
+curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash
 \`\`\`
 
 The installer verifies the tarball against its sha256 before installing."
 
 echo
 echo "released $TAG. one-line install:"
-echo "  curl -fsSL https://raw.githubusercontent.com/yashmishra2006/aiops-agent/main/install.sh | sudo bash"
+echo "  curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash"

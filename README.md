@@ -26,7 +26,7 @@ for `mongodb+srv://`). Agent needs Node ≥ 20; server needs Node ≥ 22
 ## Install the agent (on each server)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yashmishra2006/aiops-agent/main/install.sh | sudo bash
+curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash
 ```
 
 The installer asks where logs should go:
@@ -47,11 +47,11 @@ pass the answers as flags and nothing is asked:
 
 ```bash
 # ship to an aiops server
-curl -fsSL https://raw.githubusercontent.com/yashmishra2006/aiops-agent/main/install.sh | sudo bash -s -- \
+curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash -s -- \
   --api-key sk_live_xxx --endpoint https://logs.yourdomain.com
 
 # or write straight into your own database
-curl -fsSL https://raw.githubusercontent.com/yashmishra2006/aiops-agent/main/install.sh | sudo bash -s -- \
+curl -fsSL https://github.com/yashmishra2006/aiops-agent/releases/latest/download/install.sh | sudo bash -s -- \
   --connection-string 'postgresql://user:pass@db.example.com:5432/logs'
 ```
 
@@ -172,11 +172,11 @@ block; the buffering, shipping, auth, and retry machinery is shared.
 ```
 
 This builds `dist/aiops-agent-<version>.tar.gz` + checksum, tags the commit,
-and creates a GitHub Release with the assets. `install.sh` (served raw from
-the `main` branch) resolves the latest release automatically, verifies the
-checksum, and installs — so the one-liner above always installs the newest
-version. To self-host instead, run `./scripts/package.sh` and point
-`AIOPS_DOWNLOAD_BASE` at wherever you upload the files.
+and creates a GitHub Release carrying the tarball, its checksum, and
+`install.sh` itself — so the `releases/latest/download/install.sh` one-liner
+always serves the current installer, resolves the newest release, verifies the
+checksum, and installs. To self-host instead, run `./scripts/package.sh` and
+point `AIOPS_DOWNLOAD_BASE` at wherever you upload the files.
 
 ## Layout
 
