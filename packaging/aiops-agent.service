@@ -1,0 +1,23 @@
+[Unit]
+Description=AIOps log collection agent
+Documentation=https://github.com/yashmishra2006/aiops-agent
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/aiops-agent/bin/node /opt/aiops-agent/aiops-agent.js --config /etc/aiops-agent/config.yaml
+Restart=always
+RestartSec=5
+User=root
+# Hardening — the agent needs read access to logs and the docker socket, nothing more
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/aiops-agent
+PrivateTmp=true
+MemoryMax=256M
+CPUQuota=20%
+
+[Install]
+WantedBy=multi-user.target

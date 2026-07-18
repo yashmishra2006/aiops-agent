@@ -1,0 +1,46 @@
+# aiops-agent configuration
+# Installed at /etc/aiops-agent/config.yaml (root-only, mode 600 — contains credentials)
+
+# --- Storage backend --------------------------------------------------------
+# Default: ship to an aiops server over HTTPS with an API key.
+endpoint: https://logs.yourdomain.com
+api_key: sk_live_replace_me
+
+# Or write logs directly into your own database instead — uncomment and set a
+# connection string; the sink type is inferred from the scheme
+# (postgresql://, mysql://, mongodb://, mongodb+srv://).
+# sink:
+#   connection_string: postgresql://user:password@db.example.com:5432/logs
+#   table: aiops_logs          # SQL table / MongoDB collection
+
+# Tag every log from this host
+environment: production
+# hostname: prod-api-1        # defaults to the system hostname
+
+collectors:
+  docker:
+    enabled: true
+    socket: /var/run/docker.sock
+  journald:
+    enabled: true
+    # units:                   # empty = all units; or list specific ones:
+    #   - nginx.service
+    #   - postgresql.service
+  files:
+    enabled: true
+    paths:
+      - /var/log/*.log
+      - /var/log/syslog
+      - /opt/*/logs/*.log
+  metrics:
+    enabled: true
+    interval_seconds: 60
+
+buffer:
+  max_bytes: 209715200         # 200 MB local queue cap when server is offline
+  segment_bytes: 1048576
+
+ship:
+  batch_size: 500
+  flush_interval_seconds: 3
+  remote_config_interval_seconds: 60
